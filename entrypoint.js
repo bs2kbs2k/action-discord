@@ -38,41 +38,79 @@ if (argv._.length === 0 && !process.env.DISCORD_EMBEDS) {
 } else {
   // Otherwise, if the argument or embeds are provided, let Discord override the message.
   const args = argv._.join(' ');
-  const message = _.template(args)({ ...process.env, EVENT_PAYLOAD: JSON.parse(eventContent) });
+  if (args.length > 2000) {
+    let args_lines = args.split('\n');
+    let args_split = [];
+    payload = []
+    while (args_lines.length > 0) {
+      let line = args_lines.shift()
+      if (args_split.length == 0 || (args_split[args_split.length - 1].length + line.length + 1) > 2000) {
+        args_split.push(line);
+      } else {
+        args_split[args_split.length - 1] += "\n";
+        args_split[args_split.length - 1] += line;
+      }
+    }
+    args_split.forEach(args => {
+      const message = _.template(args)({ ...process.env, EVENT_PAYLOAD: JSON.parse(eventContent) });
 
-  let embedsObject;
-  if (process.env.DISCORD_EMBEDS) {
-     try {
-        embedsObject = JSON.parse(process.env.DISCORD_EMBEDS);
-     } catch (parseErr) {
-       console.error('Error parsing DISCORD_EMBEDS :' + parseErr);
-       process.exit(1);
-     }
+      let embedsObject;
+      if (process.env.DISCORD_EMBEDS) {
+        try {
+            embedsObject = JSON.parse(process.env.DISCORD_EMBEDS);
+        } catch (parseErr) {
+          console.error('Error parsing DISCORD_EMBEDS :' + parseErr);
+          process.exit(1);
+        }
+      }
+
+      url = process.env.DISCORD_WEBHOOK;
+      payload.push(JSON.stringify({
+        content: message,
+        ...process.env.DISCORD_EMBEDS && { embeds: embedsObject },
+        ...process.env.DISCORD_USERNAME && { username: process.env.DISCORD_USERNAME },
+        ...process.env.DISCORD_AVATAR && { avatar_url: process.env.DISCORD_AVATAR },
+      }));
+    })
+  } else {
+    const message = _.template(args)({ ...process.env, EVENT_PAYLOAD: JSON.parse(eventContent) });
+
+    let embedsObject;
+    if (process.env.DISCORD_EMBEDS) {
+      try {
+          embedsObject = JSON.parse(process.env.DISCORD_EMBEDS);
+      } catch (parseErr) {
+        console.error('Error parsing DISCORD_EMBEDS :' + parseErr);
+        process.exit(1);
+      }
+    }
+
+    url = process.env.DISCORD_WEBHOOK;
+    payload = [JSON.stringify({
+      content: message,
+      ...process.env.DISCORD_EMBEDS && { embeds: embedsObject },
+      ...process.env.DISCORD_USERNAME && { username: process.env.DISCORD_USERNAME },
+      ...process.env.DISCORD_AVATAR && { avatar_url: process.env.DISCORD_AVATAR },
+    })];
   }
-
-  url = process.env.DISCORD_WEBHOOK;
-  payload = JSON.stringify({
-    content: message,
-    ...process.env.DISCORD_EMBEDS && { embeds: embedsObject },
-    ...process.env.DISCORD_USERNAME && { username: process.env.DISCORD_USERNAME },
-    ...process.env.DISCORD_AVATAR && { avatar_url: process.env.DISCORD_AVATAR },
-  });
 }
 
 // curl -X POST -H "Content-Type: application/json" --data "$(cat $GITHUB_EVENT_PATH)" $DISCORD_WEBHOOK/github
 
 (async () => {
-  console.log('Sending message ...');
-  await axios.post(
-    `${url}?wait=true`,
-    payload,
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-GitHub-Event': process.env.GITHUB_EVENT_NAME,
+  for (const message of payload) {
+    console.log('Sending message ...');
+    await axios.post(
+      `${url}?wait=true`,
+      message,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-GitHub-Event': process.env.GITHUB_EVENT_NAME,
+        },
       },
-    },
-  );
+    );
+  }
   console.log('Message sent ! Shutting down ...');
   process.exit(0);
 })().catch(err => {
